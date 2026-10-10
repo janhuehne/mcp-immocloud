@@ -1,0 +1,21 @@
+---
+description: Preserve Immocloud bank payment links when updating finance bookings
+alwaysApply: true
+---
+
+# Immocloud finance updates — never drop `payments`
+
+Immocloud `PUT /finance/transactions/{id}` **replaces** `payments`. Omitting the field or sending `[]` unlinks the bank turnover; the finance booking can stay `PAID` while the bank tx returns to **UNASSIGNED**.
+
+## Required behavior
+
+1. Before any finance PUT (MCP tool, Node script, or raw API): **GET** the transaction first.
+2. If it already has `payments[]`, **include those payments** in the PUT body unless the user explicitly wants to unlink.
+3. Prefer `immocloud_update_finance_transaction` (preserves payments by default). Use `clearPayments=true` only for intentional unlink.
+4. After category/VAT/contact/document fixes: verify `payments.length > 0` and that the bank tx is **ASSIGNED**, not only that the finance row is `PAID`.
+5. Document upload/link must not be done via a payments-less PUT that wipes bank assignment.
+
+## Unlink on purpose
+
+- `immocloud_remove_bank_transaction_payments`, or
+- `immocloud_update_finance_transaction` with `clearPayments=true`

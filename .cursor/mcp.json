@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "immocloud": {
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "--env-file=${workspaceFolder}/.env",
+        "${workspaceFolder}/dist/index.js"
+      ],
+      "env": {
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.re/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.immocloud/
+/session.json
+.session_token
+*.token
+tokens/
+.tokens/
+/.npmrc
+/credentials.json
+/secrets.json
+device-trust.json
+.device-trust.json
+device-trust-*.json
+*.device-trust.json
+
+# Editor and OS files
+.DS_Store
+*.log
