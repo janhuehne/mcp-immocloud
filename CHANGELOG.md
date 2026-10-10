@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-10-10
+
+### Changed
+
+- README documents MCP setup for Claude Code, Claude Desktop, VS Code, Cursor, and other stdio hosts (not Cursor-only)
+- Setup skill wording aligned with multi-client usage
+
 ## [1.0.0] - 2026-10-10
 
 First public release of the unofficial Immocloud MCP server.
@@ -31,4 +38,5 @@ First public release of the unofficial Immocloud MCP server.
 - Sessions prefer the OS keychain (`IMMOCLOUD_SESSION_BACKEND=auto`) via `@napi-rs/keyring`, with mode-`0600` metadata under `.immocloud/`; file fallback when keychain is unavailable; automatic migration from legacy plaintext session files
 - OAuth mode is status-only and does not restore private-API sessions
 
+[1.0.1]: https://github.com/janhuehne/mcp-immocloud/releases/tag/v1.0.1
 [1.0.0]: https://github.com/janhuehne/mcp-immocloud/releases/tag/v1.0.0

@@ -2,7 +2,9 @@
 
 Unofficial [Model Context Protocol](https://modelcontextprotocol.io/) server for [Immocloud](https://www.immocloud.de/) property management.
 
-Talk to your Immocloud account from Cursor (or any MCP client): properties, tenancies, contacts, documents, bank transactions, rent matching, and more — via Immocloud’s private REST API.
+Talk to your Immocloud account from any MCP-compatible client: properties, tenancies, contacts, documents, bank transactions, rent matching, and more — via Immocloud’s private REST API.
+
+Works with **Claude Code**, **Claude Desktop**, **VS Code** (GitHub Copilot / Agent), **Cursor**, Windsurf, Cline, and other hosts that can launch a local **stdio** MCP server.
 
 > **Not affiliated with Immocloud.** This project uses an unsupported private API. Endpoints and behaviour can change without notice. Use at your own risk.
 
@@ -20,7 +22,7 @@ Talk to your Immocloud account from Cursor (or any MCP client): properties, tena
 
 - Node.js **20+**
 - An Immocloud account
-- An MCP client (e.g. Cursor)
+- An MCP host that supports local stdio servers
 
 ## Quick start
 
@@ -34,16 +36,61 @@ npm run build
 npm test
 ```
 
-Point Cursor at the built server. Prefer loading secrets via Node’s `--env-file` (do **not** put passwords or tokens in `mcp.json`):
+Prefer loading secrets with Node’s `--env-file` (do **not** put passwords or tokens in MCP config JSON). Replace the paths below with absolute paths on your machine (and use your real `node` binary, e.g. `/usr/bin/node` or `/opt/homebrew/bin/node`).
+
+### Shared stdio launch shape
+
+Most hosts need the same idea: run `node` with `--env-file=…/.env` and `dist/index.js`.
+
+| Placeholder | Meaning |
+|---|---|
+| `NODE` | Absolute path to Node 20+ |
+| `REPO` | Absolute path to this cloned repo |
+| `ENV_FILE` | Usually `$REPO/.env` |
+
+Command equivalent:
+
+```bash
+NODE --env-file=ENV_FILE REPO/dist/index.js
+```
+
+On start the server restores a saved session (OS keychain by default), otherwise logs in with email/password. If Immocloud asks for a device code, call `immocloud_login`, then `immocloud_verify_device` with the returned challenge handle and the emailed code.
+
+Restart / reload the MCP server in your host after any `.env` change.
+
+## MCP client setup
+
+Config file names and JSON keys differ by host. Examples use macOS Homebrew Node paths — adjust for your OS.
+
+### Claude Code
+
+Project config: `.mcp.json` in the project root (or user config in `~/.claude.json`).
+
+```bash
+claude mcp add-json immocloud '{
+  "type": "stdio",
+  "command": "/opt/homebrew/bin/node",
+  "args": [
+    "--env-file=/absolute/path/to/mcp-immocloud/.env",
+    "/absolute/path/to/mcp-immocloud/dist/index.js"
+  ],
+  "env": {
+    "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+  }
+}'
+```
+
+Or write `.mcp.json` manually:
 
 ```json
 {
   "mcpServers": {
     "immocloud": {
+      "type": "stdio",
       "command": "/opt/homebrew/bin/node",
       "args": [
-        "--env-file=/absolute/path/to/immocloud-mcp/.env",
-        "/absolute/path/to/immocloud-mcp/dist/index.js"
+        "--env-file=/absolute/path/to/mcp-immocloud/.env",
+        "/absolute/path/to/mcp-immocloud/dist/index.js"
       ],
       "env": {
         "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
@@ -53,9 +100,81 @@ Point Cursor at the built server. Prefer loading secrets via Node’s `--env-fil
 }
 ```
 
-On start the server restores a saved session (OS keychain by default), otherwise logs in with email/password. If Immocloud asks for a device code, call `immocloud_login`, then `immocloud_verify_device` with the returned challenge handle and the emailed code.
+Docs: [Claude Code MCP](https://code.claude.com/docs/en/mcp).
 
-Restart the MCP server after any `.env` change.
+### Claude Desktop
+
+Edit `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "immocloud": {
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "--env-file=/absolute/path/to/mcp-immocloud/.env",
+        "/absolute/path/to/mcp-immocloud/dist/index.js"
+      ],
+      "env": {
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}
+```
+
+Fully quit and reopen Claude Desktop after editing.
+
+### VS Code (GitHub Copilot / Agent)
+
+Workspace file: `.vscode/mcp.json` (or use **MCP: Open User Configuration**).
+
+VS Code can also load env vars via `envFile` instead of Node’s `--env-file`:
+
+```json
+{
+  "servers": {
+    "immocloud": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/absolute/path/to/mcp-immocloud/dist/index.js"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "/absolute/path/to/mcp-immocloud"
+    }
+  }
+}
+```
+
+If this repo is not your workspace root, keep absolute paths for `args` / `cwd` / `envFile`. Docs: [VS Code MCP configuration](https://code.visualstudio.com/docs/copilot/reference/mcp-configuration).
+
+### Cursor
+
+User or project `mcp.json` (e.g. `~/.cursor/mcp.json` or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "immocloud": {
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "--env-file=/absolute/path/to/mcp-immocloud/.env",
+        "/absolute/path/to/mcp-immocloud/dist/index.js"
+      ],
+      "env": {
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}
+```
+
+### Other hosts (Windsurf, Cline, …)
+
+Any client that can start a **stdio** MCP process can use the same `command` + `args` as above. Prefer absolute paths to `node` and `dist/index.js`, and load `.env` via `--env-file` or the host’s env-file feature. Check that host’s docs for the exact config file name (`mcpServers` vs `servers`, optional `"type": "stdio"`).
 
 ## Configuration
 
@@ -158,14 +277,14 @@ Read-only smoke test against the live Immocloud private API (auth + common list 
 npm run health-check
 ```
 
-## Cursor skills
+## Optional: Cursor Agent skills
 
-Project skills live under [`.cursor/skills/`](.cursor/skills/):
+If you use Cursor, project skills under [`.cursor/skills/`](.cursor/skills/) help agents with setup, health checks, write gates, and safe finance updates. They are optional and not required for Claude Code, VS Code, or Claude Desktop.
 
 | Skill | Purpose |
 |---|---|
 | `immocloud-mcp-health-check` | Compatibility / “is MCP still working?” check |
-| `immocloud-mcp-setup` | Local install, `.env`, Cursor `mcp.json`, auth recovery |
+| `immocloud-mcp-setup` | Local install, `.env`, MCP host wiring, auth recovery |
 | `immocloud-write-access` | Enable/disable banking & property writes |
 | `immocloud-finance-safe-writes` | Update finance rows without dropping bank `payments` |
 
@@ -173,3 +292,4 @@ Project skills live under [`.cursor/skills/`](.cursor/skills/):
 
 - [SECURITY.md](SECURITY.md) — vulnerability reporting and security defaults
 - [`.env.example`](.env.example) — full environment template
+- [Model Context Protocol](https://modelcontextprotocol.io/) — protocol overview and client list

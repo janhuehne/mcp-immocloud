@@ -1,6 +1,6 @@
 {
   "name": "immocloud-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Hybrid MCP server for Immocloud's private REST API with email/password login, bank tools, and OAuth-ready stubs",
   "type": "module",
   "main": "dist/index.js",

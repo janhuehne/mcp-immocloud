@@ -1,9 +1,10 @@
 ---
 name: immocloud-mcp-setup
 description: >-
-  Sets up or repairs local Immocloud MCP configuration for Cursor (.env,
-  build, mcp.json, login/session). Use when installing Immocloud MCP, wiring
-  Cursor, fixing auth bootstrap, or onboarding a new machine.
+  Sets up or repairs local Immocloud MCP configuration for any MCP host (.env,
+  build, stdio mcp.json / Claude Code / VS Code / Claude Desktop, login/session).
+  Use when installing Immocloud MCP, wiring a client, fixing auth bootstrap, or
+  onboarding a new machine.
 ---
 
 # Immocloud MCP setup
@@ -14,14 +15,14 @@ description: >-
 2. `cp .env.example .env` and set `IMMOCLOUD_EMAIL` / `IMMOCLOUD_PASSWORD`
 3. Keep write flags `false` unless the user wants mutation
 4. `npm install && npm run build`
-5. Cursor `mcp.json` must use `node --env-file=…/.env` + `dist/index.js`
-6. Never put password or Bearer token inside `mcp.json`
-7. Restart MCP after `.env` changes
+5. Host MCP config must launch `node --env-file=…/.env` + `dist/index.js` (or equivalent `envFile`)
+6. Never put password or Bearer token inside MCP JSON config
+7. Restart / reload MCP in the host after `.env` changes
 8. Verify with `npm run health-check` or the health-check skill
 
-## Cursor snippet
+## Stdio snippet (Claude Code / Cursor / Claude Desktop style)
 
-Use absolute paths:
+Use absolute paths. See README for VS Code’s `.vscode/mcp.json` (`servers` + `envFile`) variant.
 
 ```json
 {
@@ -29,8 +30,8 @@ Use absolute paths:
     "immocloud": {
       "command": "/opt/homebrew/bin/node",
       "args": [
-        "--env-file=/absolute/path/to/immocloud-mcp/.env",
-        "/absolute/path/to/immocloud-mcp/dist/index.js"
+        "--env-file=/absolute/path/to/mcp-immocloud/.env",
+        "/absolute/path/to/mcp-immocloud/dist/index.js"
       ],
       "env": {
         "PATH": "/opt/homebrew/bin:/usr/bin:/bin"
