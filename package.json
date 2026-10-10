@@ -1,7 +1,7 @@
 {
   "name": "immocloud-mcp",
-  "version": "1.0.1",
-  "description": "Hybrid MCP server for Immocloud's private REST API with email/password login, bank tools, and OAuth-ready stubs",
+  "version": "1.0.2",
+  "description": "Unofficial Immocloud MCP server for property management: Claude Code, Claude Desktop, VS Code, Cursor. Local stdio MCP for Immocloud (immocloud.de) private REST API.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -25,8 +25,19 @@
   },
   "keywords": [
     "immocloud",
+    "immocloud.de",
     "mcp",
-    "model-context-protocol"
+    "mcp-server",
+    "model-context-protocol",
+    "claude-code",
+    "claude-desktop",
+    "vscode",
+    "cursor",
+    "property-management",
+    "immobilienverwaltung",
+    "finapi",
+    "banking",
+    "typescript"
   ],
   "author": "Jan-Hendrik Huehne",
   "license": "MIT",

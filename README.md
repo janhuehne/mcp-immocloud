@@ -1,12 +1,22 @@
-# Immocloud MCP
+# Immocloud MCP (`mcp-immocloud`)
 
-Unofficial [Model Context Protocol](https://modelcontextprotocol.io/) server for [Immocloud](https://www.immocloud.de/) property management.
+Unofficial **Immocloud MCP server** — a local [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) integration for [Immocloud](https://www.immocloud.de/) (immocloud.de) property management / Immobilienverwaltung.
 
-Talk to your Immocloud account from any MCP-compatible client: properties, tenancies, contacts, documents, bank transactions, rent matching, and more — via Immocloud’s private REST API.
+Use natural language in your AI coding tool to work with Immocloud **properties (Objekte)**, **tenancies (Mietverhältnisse)**, **contacts**, **documents**, **bank transactions (Bankumsätze)**, rent matching, and finance bookings — via Immocloud’s private REST API.
 
-Works with **Claude Code**, **Claude Desktop**, **VS Code** (GitHub Copilot / Agent), **Cursor**, Windsurf, Cline, and other hosts that can launch a local **stdio** MCP server.
+**MCP clients:** Claude Code, Claude Desktop, VS Code (GitHub Copilot / Agent mode), Cursor, Windsurf, Cline, and any host that can run a local **stdio** MCP server.
 
-> **Not affiliated with Immocloud.** This project uses an unsupported private API. Endpoints and behaviour can change without notice. Use at your own risk.
+> **Not affiliated with Immocloud GmbH.** This community project uses an unsupported private API. Endpoints and behaviour can change without notice. Use at your own risk. MIT licensed.
+
+### Looking for…?
+
+| Search intent | This project |
+|---|---|
+| Immocloud + MCP / Model Context Protocol | Yes — local stdio MCP server |
+| Immocloud + Claude Code / Claude Desktop | Yes — see [MCP client setup](#mcp-client-setup) |
+| Immocloud + VS Code / Copilot / Cursor | Yes — same section |
+| Official Immocloud public API | No — Immocloud has no public REST API today; this wraps the private app API |
+| Official Immocloud OAuth MCP | Not yet — stub only (`IMMOCLOUD_AUTH_MODE=oauth` is status-only) |
 
 ## Features
 
