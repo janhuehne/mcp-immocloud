@@ -26,11 +26,25 @@ export interface ImmocloudRequestOptions {
   body?: unknown;
   authenticated?: boolean;
   headers?: Record<string, string>;
+  /** Default `json`. Use `binary` for PDF/ZIP/DOCX downloads. */
+  responseType?: "json" | "binary";
   acceptNonSuccessResponse?: (
     response: Response,
     data: unknown,
   ) => boolean;
 }
+
+export interface ImmocloudBinaryResponse {
+  data: Buffer;
+  headers: Headers;
+  requestId: string;
+  status: number;
+  contentType: string;
+  /** Filename from Content-Disposition when present. */
+  filenameHint: string | undefined;
+}
+
+const MAX_BINARY_RESPONSE_BYTES = 25 * 1024 * 1024;
 
 export interface ImmocloudAuthSnapshot {
   tokenPresent: boolean;
@@ -135,6 +149,24 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   }
 }
 
+function filenameFromContentDisposition(
+  header: string | null,
+): string | undefined {
+  if (!header) {
+    return undefined;
+  }
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+      return utf8[1].trim().replace(/^["']|["']$/g, "");
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || undefined;
+}
+
 export class ImmocloudClient {
   private authToken: string | undefined;
   private deviceId: string | undefined;
@@ -188,6 +220,37 @@ export class ImmocloudClient {
   ): Promise<T> {
     const response = await this.request<T>(path, { method: "GET", query });
     return response.data;
+  }
+
+  /**
+   * Authenticated GET returning raw bytes (PDF, ZIP, DOCX, XLSX, …).
+   */
+  async getBinary(
+    path: string,
+    query: QueryParameters = {},
+    options: {
+      headers?: Record<string, string>;
+    } = {},
+  ): Promise<ImmocloudBinaryResponse> {
+    const response = await this.request<Buffer>(path, {
+      method: "GET",
+      query,
+      responseType: "binary",
+      ...(options.headers === undefined ? {} : { headers: options.headers }),
+    });
+    const contentType =
+      response.headers.get("content-type")?.split(";")[0]?.trim() ||
+      "application/octet-stream";
+    return {
+      data: response.data,
+      headers: response.headers,
+      requestId: response.requestId,
+      status: response.status,
+      contentType,
+      filenameHint: filenameFromContentDisposition(
+        response.headers.get("content-disposition"),
+      ),
+    };
   }
 
   async post<T>(
@@ -294,8 +357,12 @@ export class ImmocloudClient {
       );
     }
 
+    const responseType = options.responseType ?? "json";
     const headers = new Headers({
-      Accept: "application/json",
+      Accept:
+        responseType === "binary"
+          ? "application/pdf, application/zip, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream, */*"
+          : "application/json",
       "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
       "Cache-Control": "no-store",
       "User-Agent": CHROME_USER_AGENT,
@@ -305,6 +372,9 @@ export class ImmocloudClient {
 
     if (authenticated && this.authToken !== undefined) {
       headers.set("Authorization", this.authToken);
+    }
+    if (this.deviceId !== undefined) {
+      headers.set("X-Device-Id", this.deviceId);
     }
     if (options.body !== undefined) {
       headers.set("Content-Type", "application/json");
@@ -363,26 +433,53 @@ export class ImmocloudClient {
           );
         }
       }
-      const data = await parseResponseBody(response);
 
-      const acceptedNonSuccess =
-        !response.ok &&
-        options.acceptNonSuccessResponse?.(response, data) === true;
-      if (!response.ok && !acceptedNonSuccess) {
-        const detail = responseDetail(data);
-        const authHint =
-          response.status === 401
-            ? " Check token expiry and trusted-device state; repeated 401 responses can also indicate Immocloud's non-browser TLS filtering."
-            : "";
-        throw new ImmocloudApiError(
-          `Immocloud API returned ${response.status} ${response.statusText} for ${method} ${path}.${detail ? ` ${detail}` : ""}${authHint}`,
-          {
-            status: response.status,
-            requestId,
-            method,
-            path,
-          },
-        );
+      let data: unknown;
+      if (responseType === "binary") {
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.byteLength > MAX_BINARY_RESPONSE_BYTES) {
+          throw new ImmocloudApiError(
+            `Immocloud binary response exceeds ${MAX_BINARY_RESPONSE_BYTES} bytes for ${method} ${path}.`,
+            { status: response.status, requestId, method, path },
+          );
+        }
+        data = bytes;
+        if (!response.ok) {
+          const detail = responseDetail(
+            (() => {
+              try {
+                return parseJson(bytes.toString("utf8"));
+              } catch {
+                return bytes.toString("utf8").slice(0, 500);
+              }
+            })(),
+          );
+          throw new ImmocloudApiError(
+            `Immocloud API returned ${response.status} ${response.statusText} for ${method} ${path}.${detail ? ` ${detail}` : ""}`,
+            { status: response.status, requestId, method, path },
+          );
+        }
+      } else {
+        data = await parseResponseBody(response);
+        const acceptedNonSuccess =
+          !response.ok &&
+          options.acceptNonSuccessResponse?.(response, data) === true;
+        if (!response.ok && !acceptedNonSuccess) {
+          const detail = responseDetail(data);
+          const authHint =
+            response.status === 401
+              ? " Check token expiry and trusted-device state; repeated 401 responses can also indicate Immocloud's non-browser TLS filtering."
+              : "";
+          throw new ImmocloudApiError(
+            `Immocloud API returned ${response.status} ${response.statusText} for ${method} ${path}.${detail ? ` ${detail}` : ""}${authHint}`,
+            {
+              status: response.status,
+              requestId,
+              method,
+              path,
+            },
+          );
+        }
       }
 
       return {

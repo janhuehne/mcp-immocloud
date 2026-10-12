@@ -221,11 +221,11 @@ Set only what you need, restart MCP, then pass `confirm=true` on each write call
 
 ## Tools (overview)
 
-**Read:** profile, properties, tenancies, contacts, meters, documents, folders, operating costs, search, activity, notifications, bank connections/transactions, open rents, finance transactions.
+**Read:** profile, properties, tenancies, contacts, meters, documents, folders, operating costs / BKA (`immocloud_list_operating_costs`, `immocloud_get_operating_cost`, `immocloud_validate_operating_cost_property`, `immocloud_download_operating_cost_pdf`, `immocloud_download_operating_cost_pdfs` → writes under `./downloads/`), search, activity, notifications, bank connections/transactions, open rents, finance transactions, account charts / cost categories (`immocloud_list_account_charts`, `immocloud_list_cost_categories`).
 
-**Banking write** (flag + `confirm=true`): sync/reconnect connections, auto-assign, accept/ignore suggestions, assign bank → rent, book/split bank turnover, create/update/delete finance rows, remove payments.
+**Banking write** (flag + `confirm=true`): sync/reconnect connections, auto-assign, accept/ignore suggestions, assign bank → rent, book/split bank turnover, create/update/delete finance rows, remove payments, create/update/delete custom cost categories (`immocloud_create_cost_category`, …), Nebenkosten create/update/entries/`immocloud_calculate_operating_cost` (default refreshes MEA/Wohnfläche from property before calculate).
 
-**Property write** (flag + `confirm=true`): list owner names, create/update units, update property management.
+**Property write** (flag + `confirm=true`): list owner names, create/update units, **`immocloud_update_rent_bank_account`** (Mieteingangskonto under Abrechnungsdaten → Bankkonto), **`immocloud_update_unit_accounting`** (MEA / Wohnfläche via property PUT — unit PUT does not persist MEA), **`immocloud_update_tenancy_persons`** (Personenanzahl), update property management, create contacts, create/update tenancies, mark unit rents paid.
 
 **Auth / status:** `immocloud_auth_status`, `immocloud_oauth_status`, optional `immocloud_login` / `immocloud_verify_device`.
 

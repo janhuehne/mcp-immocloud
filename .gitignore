@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .re/
+downloads/
+
+# Local one-off booking / property scripts and frozen API snapshots (not published)
+/scripts/
+/snapshots/
 
 # Local configuration and credentials
 .env

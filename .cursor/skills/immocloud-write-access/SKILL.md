@@ -41,4 +41,8 @@ or set both enable flags to `false`.
 2. Prefer the smallest flag surface (banking XOR property when possible).
 3. Every write tool call still needs `confirm=true`.
 4. After enabling, remind the user to restart the MCP server.
-5. For finance PUTs, follow the finance-safe-writes skill / payments rule.
+5. For finance PUTs, follow `immocloud-finance-safe-writes`.
+6. For Freigabe (unit/tenancy/contact), follow `immocloud-tenancy-onboarding`.
+7. For Mietvertrag / CONTRACT uploads, follow `immocloud-contract-documents`.
+8. For Abrechnungsdaten (MEA / Wohnfläche) use `immocloud_update_unit_accounting`, not raw `immocloud_update_unit`. For Personenanzahl use `immocloud_update_tenancy_persons`.
+9. Custom Kontenrahmen categories (e.g. Umbuchung Rücklage) use `immocloud_create_cost_category` (banking write flag); book with `costCategory.technicalId` via `immocloud_update_finance_transaction`.

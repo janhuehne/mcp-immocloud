@@ -3,7 +3,12 @@ import * as z from "zod/v4";
 
 import type { ImmocloudConfig } from "../config.js";
 import {
+  assertPeriodFieldsPreserved,
+  assertRentCreateHasPeriod,
+  assertUnitBookingHasPeriodOrCategory,
   buildFinancePutBody,
+  hasRentPeriod,
+  looksLikeRentTransaction,
   paymentList,
 } from "../finance/payments.js";
 import type {
@@ -667,6 +672,24 @@ export function registerBankingTools(
     amount: z.number().finite().describe("Amount to book for this allocation."),
     allocable: z.boolean().optional(),
     accountingPeriod: z.string().trim().min(1).max(64).optional(),
+    correspondingMonth: z
+      .number()
+      .int()
+      .min(0)
+      .max(11)
+      .optional()
+      .describe(
+        "Required with correspondingYear when booking to a unit without costCategoryId (rent period; 0=Jan).",
+      ),
+    correspondingYear: z
+      .number()
+      .int()
+      .min(1970)
+      .max(2100)
+      .optional()
+      .describe(
+        "Required with correspondingMonth when booking to a unit without costCategoryId.",
+      ),
     vat: boundedJsonValueSchema.optional(),
     vatAmountInPercent: z.number().finite().min(0).max(100).optional(),
     payments: z.array(boundedJsonObjectSchema).max(100).optional(),
@@ -1020,7 +1043,11 @@ export function registerBankingTools(
         const putBody = buildFinancePutBody(
           existing,
           { financeTransactionIds },
-          { clearPayments: false, transactionId: bankTransactionId },
+          {
+            clearPayments: false,
+            transactionId: bankTransactionId,
+            mergeIdentity: false,
+          },
         );
         let status: number | null = null;
         let recoveredAfterPutError = false;
@@ -1074,7 +1101,7 @@ export function registerBankingTools(
     "immocloud_book_bank_transaction",
     {
       description:
-        "Manually book a bank transaction into one or more property/unit/cost allocations: creates finance transactions from the bank transaction template, then links them back with financeTransactionIds (Immocloud split/manual booking flow). Requires confirm=true.",
+        "Manually book a bank transaction into one or more property/unit/cost allocations: creates finance transactions from the bank transaction template, then links them back with financeTransactionIds (Immocloud split/manual booking flow). For open Mietsollstellungen prefer immocloud_assign_bank_to_finance_transactions — booking creates a new finance row without AUTO_RENT month keys and can cause overnight duplicates. Requires confirm=true.",
       inputSchema: {
         confirm: confirmSchema,
         bankTransactionId: immocloudIdSchema
@@ -1102,6 +1129,7 @@ export function registerBankingTools(
         let untrackedCreation = false;
         try {
           for (const allocation of allocations) {
+            assertUnitBookingHasPeriodOrCategory(allocation);
             const body = stripFinanceCreateFields({
               ...bankTransaction,
               assignedPropertyIdList: allocation.propertyId
@@ -1117,6 +1145,12 @@ export function registerBankingTools(
               amount: allocation.amount,
             });
             delete body.payments;
+            if (allocation.correspondingMonth !== undefined) {
+              body.correspondingMonth = allocation.correspondingMonth;
+            }
+            if (allocation.correspondingYear !== undefined) {
+              body.correspondingYear = allocation.correspondingYear;
+            }
             if (allocation.vat !== undefined) body.vat = allocation.vat;
             if (allocation.vatAmountInPercent !== undefined) {
               body.vatAmountInPercent = allocation.vatAmountInPercent;
@@ -1127,6 +1161,7 @@ export function registerBankingTools(
             if (allocation.objectInfo !== undefined) {
               body.objectInfo = allocation.objectInfo;
             }
+            assertRentCreateHasPeriod(body);
 
             let response: ImmocloudResponse<unknown>;
             try {
@@ -1145,8 +1180,19 @@ export function registerBankingTools(
                 "Immocloud created a finance transaction without returning a valid ID.",
               );
             }
-            created.push(response.data);
+            // Track immediately so catch-path rollback covers period-check failures.
             financeTransactionIds.push(createdId);
+            const createdRow = await getFinanceTransaction(client, createdId);
+            if (
+              looksLikeRentTransaction(createdRow) &&
+              !hasRentPeriod(createdRow)
+            ) {
+              throw new Error(
+                "Immocloud created a rent-like booking without correspondingMonth/Year; " +
+                  "rolling back to avoid AUTO_RENT duplicates.",
+              );
+            }
+            created.push(createdRow);
           }
         } catch (error) {
           const rollback = await rollbackFinanceTransactions(
@@ -1166,7 +1212,11 @@ export function registerBankingTools(
         const linkBody = buildFinancePutBody(
           bankTransaction,
           { financeTransactionIds },
-          { clearPayments: false, transactionId: bankTransactionId },
+          {
+            clearPayments: false,
+            transactionId: bankTransactionId,
+            mergeIdentity: false,
+          },
         );
         let linkStatus: number | null = null;
         let recoveredAfterPutError = false;
@@ -1243,7 +1293,7 @@ export function registerBankingTools(
     "immocloud_create_finance_transaction",
     {
       description:
-        "Create a finance transaction via POST /finance/transactions. Pass a full Immocloud body (advanced/manual). Prefer immocloud_book_bank_transaction or immocloud_assign_bank_to_finance_transactions for bank assignment. If body.payments is set, verifies the link survived create. Requires confirm=true.",
+        "Create a finance transaction via POST /finance/transactions. Pass a full Immocloud body (advanced/manual). Prefer immocloud_assign_bank_to_finance_transactions for open rents — do not create replacement Mietsollstellungen without correspondingMonth/Year (Immocloud will auto-generate duplicates). If body.payments is set, verifies the link survived create. Requires confirm=true.",
       inputSchema: {
         confirm: confirmSchema,
         body: jsonObjectSchema,
@@ -1253,68 +1303,121 @@ export function registerBankingTools(
     async ({ confirm, body }) =>
       runTool(async () => {
         requireConfirm(confirm);
+        assertRentCreateHasPeriod(body);
         const response = await client.post<Record<string, unknown>>(
           "/finance/transactions",
           stripFinanceCreateFields(body),
         );
         const created = response.data;
+        const createdId = financeTransactionId(created);
         const requestedPayments = paymentList(body.payments);
-        if (requestedPayments.length > 0) {
-          const createdId = financeTransactionId(created);
-          if (createdId === undefined) {
+
+        const verifyCreatedPeriod = (row: Record<string, unknown>): void => {
+          if (
+            (looksLikeRentTransaction(body) || looksLikeRentTransaction(row)) &&
+            !hasRentPeriod(row)
+          ) {
             throw new Error(
-              "Created finance transaction has payments but no valid ID for verification.",
+              "Created finance transaction is missing correspondingMonth/Year " +
+                "after Immocloud create.",
             );
           }
-          const existing = await getFinanceTransaction(client, createdId);
-          if (paymentList(existing.payments).length > 0) {
+        };
+
+        try {
+          if (requestedPayments.length > 0) {
+            if (createdId === undefined) {
+              throw new Error(
+                "Created finance transaction has payments but no valid ID for verification.",
+              );
+            }
+            const existing = await getFinanceTransaction(client, createdId);
+            verifyCreatedPeriod(existing);
+            if (paymentList(existing.payments).length > 0) {
+              assertPaymentsPreserved(
+                { payments: requestedPayments },
+                existing,
+                { clearPayments: false },
+              );
+              return {
+                ok: true,
+                action: "create_finance_transaction",
+                status: response.status,
+                paymentsRepaired: false,
+                result: existing,
+              };
+            }
+
+            // Some Immocloud creates drop payments; re-attach immediately.
+            const putBody = buildFinancePutBody(
+              existing,
+              {
+                payments: requestedPayments,
+                markAsPaid: existing.markAsPaid ?? true,
+              },
+              {
+                clearPayments: false,
+                transactionId: createdId,
+                mergeIdentity: true,
+              },
+            );
+            const repaired = await client.put<Record<string, unknown>>(
+              `/finance/transactions/${encodeImmocloudId(createdId, "Created transaction ID")}`,
+              putBody,
+            );
+            const verified = await getFinanceTransaction(client, createdId);
             assertPaymentsPreserved(
               { payments: requestedPayments },
-              existing,
+              verified,
               { clearPayments: false },
             );
+            assertPeriodFieldsPreserved(existing, verified, {
+              clearPeriodFields: false,
+            });
+            verifyCreatedPeriod(verified);
+            return {
+              ok: true,
+              action: "create_finance_transaction",
+              status: repaired.status,
+              paymentsRepaired: true,
+              result: verified,
+            };
+          }
+
+          if (createdId !== undefined) {
+            const verified = await getFinanceTransaction(client, createdId);
+            verifyCreatedPeriod(verified);
             return {
               ok: true,
               action: "create_finance_transaction",
               status: response.status,
-              paymentsRepaired: false,
-              result: existing,
+              result: verified,
             };
           }
 
-          // Some Immocloud creates drop payments; re-attach immediately.
-          const putBody = buildFinancePutBody(
-            existing,
-            {
-              payments: requestedPayments,
-              markAsPaid: existing.markAsPaid ?? true,
-            },
-            { clearPayments: false, transactionId: createdId },
-          );
-          const repaired = await client.put<Record<string, unknown>>(
-            `/finance/transactions/${encodeImmocloudId(createdId, "Created transaction ID")}`,
-            putBody,
-          );
-          const verified = await getFinanceTransaction(client, createdId);
-          assertPaymentsPreserved(
-            { payments: requestedPayments },
-            verified,
-            { clearPayments: false },
-          );
+          if (isRecord(created)) {
+            verifyCreatedPeriod(created);
+          }
           return {
             ok: true,
             action: "create_finance_transaction",
-            status: repaired.status,
-            paymentsRepaired: true,
-            result: verified,
+            status: response.status,
+            result: created,
           };
+        } catch (error) {
+          if (createdId !== undefined) {
+            const rollback = await rollbackFinanceTransactions(client, [
+              createdId,
+            ]);
+            throw new Error(
+              `${safeErrorMessage(error)} ` +
+                (rollback.deleted.includes(createdId)
+                  ? "Rolled back the created finance transaction."
+                  : "Created finance transaction could not be rolled back; manual cleanup may be required."),
+            );
+          }
+          throw error;
         }
-        return {
-          ok: true,
-          action: "create_finance_transaction",
-          status: response.status,
-          result: created,
-        };
       }),
   );
 
@@ -1322,7 +1425,7 @@ export function registerBankingTools(
     "immocloud_create_manual_finance_transaction",
     {
       description:
-        "Create a manual finance transaction via POST /finance/transactions/manual (no bank turnover template). Requires confirm=true.",
+        "Create a manual finance transaction via POST /finance/transactions/manual (no bank turnover template). Rent-like bodies (subject Miete…) require correspondingMonth and correspondingYear — prefer assigning to existing AUTO_RENT. Requires confirm=true.",
       inputSchema: {
         confirm: confirmSchema,
         body: jsonObjectSchema,
@@ -1332,16 +1435,69 @@ export function registerBankingTools(
     async ({ confirm, body }) =>
       runTool(async () => {
         requireConfirm(confirm);
+        assertRentCreateHasPeriod(body);
         const response = await client.post<unknown>(
           "/finance/transactions/manual",
           stripFinanceCreateFields(body),
         );
-        return {
-          ok: true,
-          action: "create_manual_finance_transaction",
-          status: response.status,
-          result: response.data,
-        };
+        const created = response.data;
+        const createdId = financeTransactionId(created);
+        try {
+          if (createdId !== undefined) {
+            const verified = await getFinanceTransaction(client, createdId);
+            if (
+              (looksLikeRentTransaction(body) ||
+                looksLikeRentTransaction(verified)) &&
+              !hasRentPeriod(verified)
+            ) {
+              throw new Error(
+                "Created manual finance transaction is missing correspondingMonth/Year " +
+                  "after Immocloud create.",
+              );
+            }
+            return {
+              ok: true,
+              action: "create_manual_finance_transaction",
+              status: response.status,
+              result: verified,
+            };
+          }
+          if (isRecord(created)) {
+            if (
+              (looksLikeRentTransaction(body) ||
+                looksLikeRentTransaction(created)) &&
+              !hasRentPeriod(created)
+            ) {
+              throw new Error(
+                "Created manual finance transaction is missing correspondingMonth/Year " +
+                  "and returned no ID for cleanup.",
+              );
+            }
+          } else if (looksLikeRentTransaction(body)) {
+            throw new Error(
+              "Created manual rent-like transaction without a parseable ID for period verification.",
+            );
+          }
+          return {
+            ok: true,
+            action: "create_manual_finance_transaction",
+            status: response.status,
+            result: created,
+          };
+        } catch (error) {
+          if (createdId !== undefined) {
+            const rollback = await rollbackFinanceTransactions(client, [
+              createdId,
+            ]);
+            throw new Error(
+              `${safeErrorMessage(error)} ` +
+                (rollback.deleted.includes(createdId)
+                  ? "Rolled back the created finance transaction."
+                  : "Created finance transaction could not be rolled back; manual cleanup may be required."),
+            );
+          }
+          throw error;
+        }
       }),
   );
 
@@ -1349,7 +1505,7 @@ export function registerBankingTools(
     "immocloud_update_finance_transaction",
     {
       description:
-        "Update a finance/bank transaction via PUT /finance/transactions/{id}. Loads the existing row first and preserves payments[] unless clearPayments=true (Immocloud otherwise unlinks the bank turnover). Requires confirm=true.",
+        "Update a finance/bank transaction via PUT /finance/transactions/{id}. Loads the existing row first, merges identity fields (unit/contact/category/dates/correspondingMonth|Year), and preserves payments[] unless clearPayments=true. Refuses clearing rent period fields unless clearPeriodFields=true (prevents AUTO_RENT duplicates). Requires confirm=true.",
       inputSchema: {
         confirm: confirmSchema,
         transactionId: immocloudIdSchema,
@@ -1360,16 +1516,30 @@ export function registerBankingTools(
           .describe(
             "Set true only to intentionally clear payments[]. Default false preserves existing bank links.",
           ),
+        clearPeriodFields: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Set true only to intentionally clear correspondingMonth/Year or transactionDate/dueDate. Default false refuses clearing those on existing rows (Immocloud otherwise regenerates AUTO_RENT).",
+          ),
       },
       annotations: writeAnnotations,
     },
-    async ({ confirm, transactionId, body, clearPayments }) =>
+    async ({
+      confirm,
+      transactionId,
+      body,
+      clearPayments,
+      clearPeriodFields,
+    }) =>
       runTool(async () => {
         requireConfirm(confirm);
         const existing = await getFinanceTransaction(client, transactionId);
         const merged = buildFinancePutBody(existing, body, {
           clearPayments: clearPayments === true,
+          clearPeriodFields: clearPeriodFields === true,
           transactionId,
+          mergeIdentity: true,
         });
         const response = await client.put<unknown>(
           `/finance/transactions/${encodeImmocloudId(transactionId, "Transaction ID")}`,
@@ -1378,6 +1548,9 @@ export function registerBankingTools(
         const updated = await getFinanceTransaction(client, transactionId);
         assertPaymentsPreserved(existing, updated, {
           clearPayments: clearPayments === true,
+        });
+        assertPeriodFieldsPreserved(existing, updated, {
+          clearPeriodFields: clearPeriodFields === true,
         });
         if (
           clearPayments === true &&
@@ -1394,6 +1567,8 @@ export function registerBankingTools(
           status: response.status,
           paymentsPreserved:
             clearPayments !== true && paymentList(existing.payments).length > 0,
+          periodPreserved: clearPeriodFields !== true,
+          identityMerged: true,
           result: updated,
         };
       }),

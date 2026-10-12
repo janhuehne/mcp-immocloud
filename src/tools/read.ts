@@ -204,15 +204,6 @@ export function registerReadTools(
   );
 
   server.registerTool(
-    "immocloud_list_operating_costs",
-    {
-      description: "List all Immocloud operating-cost records.",
-      annotations: externalReadAnnotations,
-    },
-    async () => runTool(() => client.get<unknown>("/operatingcost/all")),
-  );
-
-  server.registerTool(
     "immocloud_search",
     {
       description:
